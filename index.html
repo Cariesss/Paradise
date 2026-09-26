@@ -1,0 +1,989 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Работяга Империи — Эра Парадиз</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #0a0a0a;
+            color: #00ffcc;
+            font-family: 'Courier New', monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 20px;
+            overflow: hidden;
+            transition: background 0.5s;
+        }
+
+        h1 {
+            color: #ff3366;
+            text-shadow: 0 0 10px #ff3366;
+            margin-bottom: 10px;
+            font-size: 24px;
+            letter-spacing: 4px;
+            transition: all 0.5s;
+        }
+
+        .subtitle {
+            color: #666;
+            font-size: 12px;
+            margin-bottom: 20px;
+            animation: blink 1.5s infinite;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        #gameCanvas {
+            border: 3px solid #00ffcc;
+            box-shadow: 0 0 30px rgba(0, 255, 204, 0.3);
+            background: #87CEEB;
+            display: block;
+            transition: all 0.5s;
+        }
+
+        .info {
+            display: flex;
+            justify-content: space-between;
+            width: 800px;
+            max-width: 100%;
+            margin-top: 15px;
+            font-size: 16px;
+        }
+
+        .info span {
+            color: #ffaa00;
+        }
+
+        .controls {
+            margin-top: 20px;
+            color: #555;
+            font-size: 14px;
+            text-align: center;
+        }
+
+        #message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: #000;
+            border: 2px solid #ff3366;
+            padding: 30px 50px;
+            color: #ff3366;
+            font-size: 20px;
+            text-align: center;
+            z-index: 100;
+            display: none;
+            box-shadow: 0 0 40px #ff3366;
+            max-width: 600px;
+        }
+
+        #message button {
+            margin-top: 20px;
+            background: #111;
+            color: #00ffcc;
+            border: 1px solid #00ffcc;
+            padding: 10px 20px;
+            font-family: 'Courier New', monospace;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.3s;
+        }
+
+        #message button:hover {
+            background: #00ffcc;
+            color: #000;
+            box-shadow: 0 0 15px #00ffcc;
+        }
+
+        /* === СКРИМЕР === */
+        #jumpscare {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            z-index: 9999;
+            display: none;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+        }
+
+        #jumpscareCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        #emperorText {
+            position: relative;
+            z-index: 10000;
+            color: #ff0000;
+            font-size: 22px;
+            text-align: center;
+            max-width: 800px;
+            padding: 20px;
+            font-family: 'Courier New', monospace;
+            text-shadow: 0 0 20px #ff0000, 0 0 40px #ff0000;
+            line-height: 1.6;
+            opacity: 0;
+            transition: opacity 1s;
+        }
+
+        #emperorText .emperor-name {
+            color: #ff3366;
+            font-size: 28px;
+            font-weight: bold;
+            letter-spacing: 6px;
+            margin-bottom: 30px;
+            display: block;
+            text-shadow: 0 0 30px #ff3366;
+        }
+
+        .blood-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle, transparent 0%, rgba(255, 0, 0, 0.3) 50%, rgba(139, 0, 0, 0.8) 100%);
+            pointer-events: none;
+            z-index: 9998;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+<h1 id="mainTitle">🏭 РАБОТЯГА ИМПЕРИИ</h1>
+<div class="subtitle" id="mainSubtitle">[ Выполни квоту — или исчезни ]</div>
+
+<canvas id="gameCanvas" width="800" height="450"></canvas>
+
+<div class="info">
+    <div>Монеты: <span id="score">0</span></div>
+    <div>Уровень: <span id="level">1</span></div>
+    <div>Жизни: <span id="lives">❤️❤️❤️</span></div>
+</div>
+
+<div class="controls">
+    ← → — движение &nbsp; | &nbsp; ПРОБЕЛ — прыжок &nbsp; | &nbsp; Собирай монеты, избегай токсинов
+</div>
+
+<div id="message">
+    <div id="messageText"></div>
+    <button onclick="closeMessage()">Продолжить</button>
+</div>
+
+<div class="blood-overlay" id="bloodOverlay"></div>
+
+<div id="jumpscare">
+    <canvas id="jumpscareCanvas"></canvas>
+    <div id="emperorText"></div>
+</div>
+
+<script>
+    // === НАСТРОЙКИ ===
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    const WIDTH = 800;
+    const HEIGHT = 450;
+
+    // Физика
+    const GRAVITY = 0.8;
+    const JUMP_POWER = -14;
+    const MOVE_SPEED = 5;
+
+    // Игрок (работяга)
+    const player = {
+        x: 100,
+        y: 300,
+        width: 30,
+        height: 40,
+        vx: 0,
+        vy: 0,
+        onGround: false,
+        facing: 1
+    };
+
+    // Уровни (платформы, монеты, токсины)
+    let platforms = [];
+    let coins = [];
+    let toxins = [];
+    let particles = [];
+    let backgroundBuildings = [];
+
+    // Состояние
+    let score = 0;
+    let level = 1;
+    let lives = 3;
+    let gameRunning = true;
+    let jumpscareShown = false;
+    let cameraX = 0;
+    let levelLength = 3000;
+
+    // Клавиши
+    const keys = {};
+
+    document.addEventListener('keydown', (e) => {
+        keys[e.key.toLowerCase()] = true;
+        if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(e.key.toLowerCase())) {
+            e.preventDefault();
+        }
+        // Прыжок
+        if ((e.key === ' ' || e.key.toLowerCase() === 'w' || e.key === 'ArrowUp') && player.onGround) {
+            player.vy = JUMP_POWER;
+            player.onGround = false;
+        }
+    });
+
+    document.addEventListener('keyup', (e) => {
+        keys[e.key.toLowerCase()] = false;
+    });
+
+    // === ГЕНЕРАЦИЯ УРОВНЯ ===
+    function generateLevel() {
+        platforms = [];
+        coins = [];
+        toxins = [];
+        backgroundBuildings = [];
+
+        // Земля
+        platforms.push({ x: 0, y: 400, width: levelLength, height: 50, type: 'ground' });
+
+        // Фоновые здания (имперский город)
+        for (let i = 0; i < 50; i++) {
+            backgroundBuildings.push({
+                x: i * 200 + Math.random() * 100,
+                width: 80 + Math.random() * 60,
+                height: 100 + Math.random() * 150,
+                color: Math.random() > 0.5 ? '#2a2a3a' : '#1a1a2a',
+                windows: Math.floor(Math.random() * 8) + 3
+            });
+        }
+
+        // Платформы
+        let x = 300;
+        while (x < levelLength - 500) {
+            const type = Math.random();
+            if (type < 0.5) {
+                // Обычная платформа
+                platforms.push({
+                    x: x,
+                    y: 300 - Math.random() * 100,
+                    width: 100 + Math.random() * 80,
+                    height: 20,
+                    type: 'platform'
+                });
+            } else if (type < 0.8) {
+                // Высокая платформа (труба)
+                platforms.push({
+                    x: x,
+                    y: 320,
+                    width: 60,
+                    height: 80,
+                    type: 'pipe'
+                });
+            } else {
+                // Группа блоков
+                for (let j = 0; j < 3; j++) {
+                    platforms.push({
+                        x: x + j * 40,
+                        y: 280 - j * 40,
+                        width: 40,
+                        height: 20,
+                        type: 'block'
+                    });
+                }
+            }
+            x += 200 + Math.random() * 200;
+        }
+
+        // Монеты
+        x = 200;
+        while (x < levelLength - 200) {
+            const coinY = 250 + Math.random() * 100;
+            for (let i = 0; i < 3; i++) {
+                coins.push({
+                    x: x + i * 40,
+                    y: coinY,
+                    size: 12,
+                    collected: false,
+                    animation: 0
+                });
+            }
+            x += 300 + Math.random() * 300;
+        }
+
+        // Токсины (враги)
+        x = 500;
+        while (x < levelLength - 300) {
+            toxins.push({
+                x: x,
+                y: 380,
+                width: 25,
+                height: 25,
+                vx: (Math.random() > 0.5 ? 1 : -1) * (1 + level * 0.2),
+                minX: x - 100,
+                maxX: x + 100,
+                color: '#ff3366'
+            });
+            x += 400 + Math.random() * 300;
+        }
+    }
+
+    // === ОБНОВЛЕНИЕ ===
+    function update() {
+        if (!gameRunning) return;
+
+        // Движение по горизонтали
+        if (keys['arrowleft'] || keys['a']) {
+            player.vx = -MOVE_SPEED;
+            player.facing = -1;
+        } else if (keys['arrowright'] || keys['d']) {
+            player.vx = MOVE_SPEED;
+            player.facing = 1;
+        } else {
+            player.vx *= 0.8;
+        }
+
+        // Гравитация
+        player.vy += GRAVITY;
+
+        // Применение скорости
+        player.x += player.vx;
+        player.y += player.vy;
+
+        // Границы
+        if (player.x < 0) player.x = 0;
+
+        // Проверка столкновений с платформами
+        player.onGround = false;
+
+        for (const platform of platforms) {
+            if (player.x + player.width > platform.x &&
+                player.x < platform.x + platform.width &&
+                player.y + player.height > platform.y &&
+                player.y + player.height < platform.y + platform.height + 20 &&
+                player.vy >= 0) {
+                player.y = platform.y - player.height;
+                player.vy = 0;
+                player.onGround = true;
+            }
+        }
+
+        // Камера
+        cameraX = player.x - WIDTH / 3;
+        if (cameraX < 0) cameraX = 0;
+
+        // Монеты
+        coins.forEach(coin => {
+            if (coin.collected) return;
+
+            coin.animation += 0.1;
+
+            if (player.x + player.width > coin.x - coin.size &&
+                player.x < coin.x + coin.size &&
+                player.y + player.height > coin.y - coin.size &&
+                player.y < coin.y + coin.size) {
+                coin.collected = true;
+                score++;
+                document.getElementById('score').textContent = score;
+                spawnParticles(coin.x, coin.y, '#ffaa00');
+
+                // Проверка уровня
+                if (score >= level * 10) {
+                    nextLevel();
+                }
+            }
+        });
+
+        // Токсины
+        toxins.forEach(toxin => {
+            toxin.x += toxin.vx;
+            if (toxin.x < toxin.minX || toxin.x > toxin.maxX) {
+                toxin.vx *= -1;
+            }
+
+            // Столкновение с игроком
+            if (player.x + player.width > toxin.x &&
+                player.x < toxin.x + toxin.width &&
+                player.y + player.height > toxin.y &&
+                player.y < toxin.y + toxin.height) {
+
+                lives--;
+                document.getElementById('lives').textContent = '❤️'.repeat(Math.max(0, lives));
+                spawnParticles(player.x + player.width / 2, player.y + player.height / 2, '#ff3366');
+
+                // Отбрасываем игрока назад
+                player.x -= 100;
+                if (player.x < 0) player.x = 0;
+                player.vy = -8;
+
+                if (lives <= 0) {
+                    gameOver();
+                }
+            }
+        });
+
+        // Частицы
+        particles.forEach((p, i) => {
+            p.x += p.vx;
+            p.y += p.vy;
+            p.vy += 0.2;
+            p.life--;
+            if (p.life <= 0) particles.splice(i, 1);
+        });
+
+        // Падение в пропасть
+        if (player.y > HEIGHT + 200) {
+            lives--;
+            document.getElementById('lives').textContent = '❤️'.repeat(Math.max(0, lives));
+            player.x = 100;
+            player.y = 300;
+            player.vy = 0;
+            if (lives <= 0) gameOver();
+        }
+    }
+
+    function spawnParticles(x, y, color) {
+        for (let i = 0; i < 10; i++) {
+            particles.push({
+                x: x,
+                y: y,
+                vx: (Math.random() - 0.5) * 6,
+                vy: (Math.random() - 0.5) * 6,
+                size: Math.random() * 4 + 2,
+                color: color,
+                life: 30
+            });
+        }
+    }
+
+    function nextLevel() {
+        level++;
+        document.getElementById('level').textContent = level;
+
+        // === УРОВЕНЬ 13 — СКРИМЕР ===
+        if (level === 13 && !jumpscareShown) {
+            jumpscareShown = true;
+            triggerJumpscare();
+            return;
+        }
+
+        // Сброс позиции
+        player.x = 100;
+        player.y = 300;
+        player.vx = 0;
+        player.vy = 0;
+        cameraX = 0;
+
+        generateLevel();
+    }
+
+    function gameOver() {
+        gameRunning = false;
+        showMessage(
+            '💀 КВОТА НЕ ВЫПОЛНЕНА 💀<br><br>' +
+            'Ты исчез, как и многие до тебя.<br>' +
+            'Но помни: город не отпускает просто так.<br><br>' +
+            'Попробуй снова.'
+        );
+
+        document.getElementById('message').querySelector('button').textContent = 'Начать заново';
+        document.getElementById('message').querySelector('button').onclick = resetGame;
+    }
+
+    function showMessage(text) {
+        document.getElementById('messageText').innerHTML = text;
+        document.getElementById('message').style.display = 'block';
+        gameRunning = false;
+    }
+
+    function closeMessage() {
+        document.getElementById('message').style.display = 'none';
+        gameRunning = true;
+    }
+
+    function resetGame() {
+        score = 0;
+        level = 1;
+        lives = 3;
+        jumpscareShown = false;
+        particles = [];
+        player.x = 100;
+        player.y = 300;
+        player.vx = 0;
+        player.vy = 0;
+        cameraX = 0;
+
+        document.body.style.background = '#0a0a0a';
+        document.getElementById('mainTitle').style.color = '#ff3366';
+        document.getElementById('mainTitle').style.textShadow = '0 0 10px #ff3366';
+        document.getElementById('gameCanvas').style.borderColor = '#00ffcc';
+        document.getElementById('gameCanvas').style.boxShadow = '0 0 30px rgba(0, 255, 204, 0.3)';
+        document.getElementById('gameCanvas').style.background = '#87CEEB';
+        document.getElementById('bloodOverlay').style.display = 'none';
+        document.getElementById('jumpscare').style.display = 'none';
+
+        document.getElementById('score').textContent = score;
+        document.getElementById('level').textContent = level;
+        document.getElementById('lives').textContent = '❤️❤️❤️';
+
+        generateLevel();
+
+        document.getElementById('message').style.display = 'none';
+        document.getElementById('message').querySelector('button').textContent = 'Продолжить';
+        document.getElementById('message').querySelector('button').onclick = closeMessage;
+
+        gameRunning = true;
+    }
+
+    // === СКРИМЕР ===
+    function triggerJumpscare() {
+        gameRunning = false;
+
+        document.getElementById('bloodOverlay').style.display = 'block';
+        document.body.style.background = '#1a0000';
+        document.getElementById('mainTitle').style.color = '#8b0000';
+        document.getElementById('mainTitle').style.textShadow = '0 0 20px #8b0000';
+        document.getElementById('gameCanvas').style.borderColor = '#8b0000';
+        document.getElementById('gameCanvas').style.boxShadow = '0 0 50px #8b0000';
+        document.getElementById('gameCanvas').style.background = '#000';
+
+        playScreamSound();
+
+        const jumpscare = document.getElementById('jumpscare');
+        jumpscare.style.display = 'flex';
+
+        drawEmperor();
+
+        setTimeout(() => {
+            const text = document.getElementById('emperorText');
+            text.style.opacity = '1';
+            text.innerHTML = '<span class="emperor-name">ИМПЕРАТОР</span>';
+
+            setTimeout(() => {
+                text.innerHTML = '<span class="emperor-name">ИМПЕРАТОР</span>' +
+                    '«Слишком много времени пройдёт с осознания своей недолготы.»';
+            }, 3000);
+
+            setTimeout(() => {
+                drawEmperorTurned();
+            }, 5500);
+
+            setTimeout(() => {
+                text.innerHTML = '<span class="emperor-name">ИМПЕРАТОР</span>' +
+                    '«Мозги на вынос, летит всё в щепки.<br>' +
+                    'Зло внутри, добро царит.»<br><br>' +
+                    '«Но вы конечно странные существа<br>' +
+                    'в изотерике радиации.<br>' +
+                    'Надышавшись газом<br>' +
+                    'не спасти умирающую тушу.»';
+            }, 8000);
+
+            setTimeout(() => {
+                jumpscare.style.display = 'none';
+                document.getElementById('bloodOverlay').style.display = 'none';
+                document.body.style.background = '#0a0a0a';
+                document.getElementById('gameCanvas').style.borderColor = '#00ffcc';
+                document.getElementById('gameCanvas').style.boxShadow = '0 0 30px rgba(0, 255, 204, 0.3)';
+                document.getElementById('gameCanvas').style.background = '#87CEEB';
+                document.getElementById('mainTitle').style.color = '#ff3366';
+                document.getElementById('mainTitle').style.textShadow = '0 0 10px #ff3366';
+
+                // Продолжаем
+                level = 14;
+                player.x = 100;
+                player.y = 300;
+                cameraX = 0;
+                generateLevel();
+                document.getElementById('level').textContent = level;
+                gameRunning = true;
+            }, 15000);
+
+        }, 500);
+    }
+
+    function playScreamSound() {
+        try {
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+            const osc1 = audioCtx.createOscillator();
+            const gain1 = audioCtx.createGain();
+            osc1.type = 'sawtooth';
+            osc1.frequency.setValueAtTime(80, audioCtx.currentTime);
+            osc1.frequency.exponentialRampToValueAtTime(40, audioCtx.currentTime + 2);
+            gain1.gain.setValueAtTime(0.3, audioCtx.currentTime);
+            gain1.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 2);
+            osc1.connect(gain1);
+            gain1.connect(audioCtx.destination);
+            osc1.start();
+            osc1.stop(audioCtx.currentTime + 2);
+
+            const osc2 = audioCtx.createOscillator();
+            const gain2 = audioCtx.createGain();
+            osc2.type = 'square';
+            osc2.frequency.setValueAtTime(800, audioCtx.currentTime);
+            osc2.frequency.exponentialRampToValueAtTime(200, audioCtx.currentTime + 1.5);
+            gain2.gain.setValueAtTime(0.15, audioCtx.currentTime);
+            gain2.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 1.5);
+            osc2.connect(gain2);
+            gain2.connect(audioCtx.destination);
+            osc2.start();
+            osc2.stop(audioCtx.currentTime + 1.5);
+        } catch (e) {
+            console.log('Звук не сработал:', e);
+        }
+    }
+
+    function drawEmperor(turned = false) {
+        const jc = document.getElementById('jumpscareCanvas');
+        const jctx = jc.getContext('2d');
+
+        jc.width = window.innerWidth;
+        jc.height = window.innerHeight;
+
+        const cx = jc.width / 2;
+        const cy = jc.height / 2;
+
+        jctx.fillStyle = '#000';
+        jctx.fillRect(0, 0, jc.width, jc.height);
+
+        const gradient = jctx.createRadialGradient(cx, cy, 50, cx, cy, 500);
+        gradient.addColorStop(0, 'rgba(139, 0, 0, 0.8)');
+        gradient.addColorStop(1, 'rgba(0, 0, 0, 1)');
+        jctx.fillStyle = gradient;
+        jctx.fillRect(0, 0, jc.width, jc.height);
+
+        jctx.save();
+        jctx.translate(cx, cy);
+
+        const float = Math.sin(Date.now() / 500) * 10;
+
+        // Мантия
+        jctx.fillStyle = '#1a0000';
+        jctx.beginPath();
+        jctx.moveTo(-120, 100 + float);
+        jctx.lineTo(-80, -100 + float);
+        jctx.lineTo(0, -150 + float);
+        jctx.lineTo(80, -100 + float);
+        jctx.lineTo(120, 100 + float);
+        jctx.lineTo(0, 150 + float);
+        jctx.closePath();
+        jctx.fill();
+
+        // Кости
+        jctx.strokeStyle = '#e8e8e8';
+        jctx.lineWidth = 4;
+
+        for (let i = 0; i < 5; i++) {
+            const y = -80 + i * 40 + float;
+            jctx.beginPath();
+            jctx.moveTo(-60 + i * 5, y);
+            jctx.quadraticCurveTo(0, y + 20, 60 - i * 5, y);
+            jctx.stroke();
+        }
+
+        // Череп
+        jctx.fillStyle = '#e8e8e8';
+        jctx.beginPath();
+        jctx.arc(0, -120 + float, 45, 0, Math.PI * 2);
+        jctx.fill();
+
+        // Глазницы
+        jctx.fillStyle = '#000';
+        jctx.beginPath();
+        jctx.arc(-18, -130 + float, 12, 0, Math.PI * 2);
+        jctx.arc(18, -130 + float, 12, 0, Math.PI * 2);
+        jctx.fill();
+
+        // Красные глаза
+        jctx.fillStyle = '#ff0000';
+        jctx.shadowColor = '#ff0000';
+        jctx.shadowBlur = 20;
+        jctx.beginPath();
+        jctx.arc(-18, -130 + float, 6, 0, Math.PI * 2);
+        jctx.arc(18, -130 + float, 6, 0, Math.PI * 2);
+        jctx.fill();
+        jctx.shadowBlur = 0;
+
+        // Челюсть
+        jctx.strokeStyle = '#e8e8e8';
+        jctx.lineWidth = 3;
+        jctx.beginPath();
+        jctx.moveTo(-20, -95 + float);
+        jctx.lineTo(-15, -75 + float);
+        jctx.lineTo(15, -75 + float);
+        jctx.lineTo(20, -95 + float);
+        jctx.stroke();
+
+        for (let i = -15; i <= 15; i += 8) {
+            jctx.beginPath();
+            jctx.moveTo(i, -80 + float);
+            jctx.lineTo(i, -70 + float);
+            jctx.stroke();
+        }
+
+        // Руки
+        jctx.strokeStyle = '#e8e8e8';
+        jctx.lineWidth = 5;
+
+        jctx.beginPath();
+        jctx.moveTo(-80, -50 + float);
+        jctx.lineTo(-150, 0 + float);
+        jctx.lineTo(-180, 50 + float);
+        jctx.stroke();
+
+        jctx.beginPath();
+        jctx.moveTo(80, -50 + float);
+        jctx.lineTo(150, 0 + float);
+        jctx.lineTo(180, 50 + float);
+        jctx.stroke();
+
+        for (let side of [-1, 1]) {
+            for (let i = 0; i < 3; i++) {
+                jctx.beginPath();
+                jctx.moveTo(side * 180, 50 + float);
+                jctx.lineTo(side * (180 + i * 15), 80 + i * 10 + float);
+                jctx.stroke();
+            }
+        }
+
+        if (turned) {
+            jctx.fillStyle = '#ff0000';
+            jctx.shadowColor = '#ff0000';
+            jctx.shadowBlur = 40;
+            jctx.beginPath();
+            jctx.arc(-18, -130 + float, 10, 0, Math.PI * 2);
+            jctx.arc(18, -130 + float, 10, 0, Math.PI * 2);
+            jctx.fill();
+            jctx.shadowBlur = 0;
+
+            jctx.strokeStyle = '#8b0000';
+            jctx.lineWidth = 3;
+            jctx.beginPath();
+            jctx.moveTo(-18, -120 + float);
+            jctx.lineTo(-18, -80 + float);
+            jctx.moveTo(18, -120 + float);
+            jctx.lineTo(18, -80 + float);
+            jctx.stroke();
+        }
+
+        jctx.restore();
+    }
+
+    function drawEmperorTurned() {
+        drawEmperor(true);
+    }
+
+    // === ОТРИСОВКА ===
+    function draw() {
+        // Небо (градиент)
+        const skyGradient = ctx.createLinearGradient(0, 0, 0, HEIGHT);
+        skyGradient.addColorStop(0, '#87CEEB');
+        skyGradient.addColorStop(1, '#E0F6FF');
+        ctx.fillStyle = skyGradient;
+        ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+        // Фоновые здания (имперский город)
+        backgroundBuildings.forEach(building => {
+            const screenX = building.x - cameraX * 0.5;
+
+            if (screenX > -200 && screenX < WIDTH + 200) {
+                // Здание
+                ctx.fillStyle = building.color;
+                ctx.fillRect(screenX, 400 - building.height, building.width, building.height);
+
+                // Окна
+                ctx.fillStyle = '#ffaa00';
+                for (let i = 0; i < building.windows; i++) {
+                    const wx = screenX + 10 + (i % 3) * 20;
+                    const wy = 400 - building.height + 20 + Math.floor(i / 3) * 30;
+                    ctx.fillRect(wx, wy, 10, 15);
+                }
+
+                // Крыша
+                ctx.fillStyle = '#1a1a2a';
+                ctx.fillRect(screenX - 5, 400 - building.height - 10, building.width + 10, 10);
+            }
+        });
+
+        // Платформы
+        platforms.forEach(platform => {
+            const screenX = platform.x - cameraX;
+
+            if (screenX > -200 && screenX < WIDTH + 200) {
+                if (platform.type === 'ground') {
+                    // Земля
+                    ctx.fillStyle = '#3a3a2a';
+                    ctx.fillRect(screenX, platform.y, platform.width, platform.height);
+                    // Трава
+                    ctx.fillStyle = '#4a6a3a';
+                    ctx.fillRect(screenX, platform.y, platform.width, 10);
+                } else if (platform.type === 'pipe') {
+                    // Труба
+                    ctx.fillStyle = '#2a5a2a';
+                    ctx.fillRect(screenX, platform.y, platform.width, platform.height);
+                    ctx.fillStyle = '#3a7a3a';
+                    ctx.fillRect(screenX - 5, platform.y, platform.width + 10, 15);
+                } else {
+                    // Обычная платформа
+                    ctx.fillStyle = '#5a4a3a';
+                    ctx.fillRect(screenX, platform.y, platform.width, platform.height);
+                    ctx.fillStyle = '#7a6a5a';
+                    ctx.fillRect(screenX, platform.y, platform.width, 5);
+                }
+            }
+        });
+
+        // Монеты
+        coins.forEach(coin => {
+            if (coin.collected) return;
+
+            const screenX = coin.x - cameraX;
+
+            if (screenX > -50 && screenX < WIDTH + 50) {
+                const wobble = Math.sin(coin.animation) * 3;
+
+                ctx.fillStyle = '#ffaa00';
+                ctx.shadowColor = '#ffaa00';
+                ctx.shadowBlur = 15;
+                ctx.beginPath();
+                ctx.ellipse(screenX, coin.y + wobble, coin.size, coin.size * 1.3, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+
+                // Буква внутри
+                ctx.fillStyle = '#8b6000';
+                ctx.font = 'bold 12px Courier New';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('И', screenX, coin.y + wobble);
+            }
+        });
+
+        // Токсины
+        toxins.forEach(toxin => {
+            const screenX = toxin.x - cameraX;
+
+            if (screenX > -50 && screenX < WIDTH + 50) {
+                // Тело токсина
+                ctx.fillStyle = toxin.color;
+                ctx.shadowColor = toxin.color;
+                ctx.shadowBlur = 15;
+
+                // Капля
+                ctx.beginPath();
+                ctx.moveTo(screenX + toxin.width / 2, toxin.y - 5);
+                ctx.quadraticCurveTo(screenX + toxin.width, toxin.y + toxin.height / 2, screenX + toxin.width / 2, toxin.y + toxin.height);
+                ctx.quadraticCurveTo(screenX, toxin.y + toxin.height / 2, screenX + toxin.width / 2, toxin.y - 5);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+
+                // Глаза
+                ctx.fillStyle = '#000';
+                ctx.beginPath();
+                ctx.arc(screenX + 8, toxin.y + 10, 3, 0, Math.PI * 2);
+                ctx.arc(screenX + 17, toxin.y + 10, 3, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Злые глаза
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.arc(screenX + 9, toxin.y + 10, 1.5, 0, Math.PI * 2);
+                ctx.arc(screenX + 18, toxin.y + 10, 1.5, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        });
+
+        // Частицы
+        particles.forEach(p => {
+            const screenX = p.x - cameraX;
+            ctx.fillStyle = p.color;
+            ctx.globalAlpha = p.life / 30;
+            ctx.beginPath();
+            ctx.arc(screenX, p.y, p.size, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+        });
+
+        // Игрок (работяга)
+        const playerScreenX = player.x - cameraX;
+
+        // Тело (комбинезон)
+        ctx.fillStyle = '#3a5a8a';
+        ctx.fillRect(playerScreenX, player.y, player.width, player.height);
+
+        // Голова
+        ctx.fillStyle = '#e8c8a0';
+        ctx.fillRect(playerScreenX + 5, player.y - 15, player.width - 10, 18);
+
+        // Каска (рабочая)
+        ctx.fillStyle = '#ffaa00';
+        ctx.fillRect(playerScreenX + 3, player.y - 20, player.width - 6, 8);
+        ctx.fillRect(playerScreenX + 1, player.y - 15, player.width - 2, 3);
+
+        // Глаза
+        ctx.fillStyle = '#000';
+        if (player.facing === 1) {
+            ctx.fillRect(playerScreenX + 18, player.y - 8, 3, 3);
+            ctx.fillRect(playerScreenX + 23, player.y - 8, 3, 3);
+        } else {
+            ctx.fillRect(playerScreenX + 5, player.y - 8, 3, 3);
+            ctx.fillRect(playerScreenX + 10, player.y - 8, 3, 3);
+        }
+
+        // Руки
+        ctx.fillStyle = '#e8c8a0';
+        ctx.fillRect(playerScreenX - 5, player.y + 5, 8, 15);
+        ctx.fillRect(playerScreenX + player.width - 3, player.y + 5, 8, 15);
+
+        // Ноги
+        ctx.fillStyle = '#2a2a3a';
+        ctx.fillRect(playerScreenX + 3, player.y + player.height, 10, 8);
+        ctx.fillRect(playerScreenX + player.width - 13, player.y + player.height, 10, 8);
+
+        // Индикатор прогресса (полоса сверху)
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+        ctx.fillRect(10, 10, 300, 20);
+        ctx.fillStyle = '#00ff66';
+        const progress = Math.min(score / (level * 10), 1);
+        ctx.fillRect(10, 10, 300 * progress, 20);
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 14px Courier New';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`Квота: ${score} / ${level * 10}`, 15, 20);
+    }
+
+    function gameLoop() {
+        update();
+        draw();
+        requestAnimationFrame(gameLoop);
+    }
+
+    // === СТАРТ ===
+    generateLevel();
+    gameLoop();
+</script>
+</body>
+  </html>
